@@ -152,6 +152,7 @@ function executePlayCards(roomCode, player, selectedCards, chosenColor) {
   const colorNames = { red: '赤', blue: '青', yellow: '黄', green: '緑', black: '黒' };
   addLog(roomCode, `🃏 ${player.name} が ${colorNames[lastPlayed.color]}の「${lastPlayed.value}」を ${count}枚 出しました。`);
 
+  // 勝利判定（手札0枚）
   if (player.hand.length === 0) {
     clearInterval(room.turnTimer);
     if (room.autoDrawTimer) clearInterval(room.autoDrawTimer);
@@ -162,6 +163,7 @@ function executePlayCards(roomCode, player, selectedCards, chosenColor) {
     return;
   }
 
+  // 残り1枚になった時のUNO宣言チェック
   if (player.hand.length === 1) {
     if (player.unoDeclaredValidUntil >= Date.now()) {
       player.vulnerableUntil = 0;
@@ -177,20 +179,48 @@ function executePlayCards(roomCode, player, selectedCards, chosenColor) {
 
   let step = 1;
   const val = lastPlayed.value;
+  const numPlayers = room.players.length;
 
   if (val === 'reverse') {
-    if (room.players.length === 2) {
-      step = 2;
+    if (numPlayers === 2) {
+      // 2人対戦時のリバースはスキップと同じ（1枚でも2枚でも相手を飛ばして自分のターン継続）
+      const opponentIndex = (room.currentTurnIndex + 1) % 2;
+      const opponent = room.players[opponentIndex];
+      io.to(opponent.id).emit('notification', `リバース${count}枚でスキップされました！`);
+      addLog(roomCode, `🔁 2人対戦のリバース(${count}枚)により ${opponent.name} がスキップされました！`);
+      step = 0; // 自分のターンを維持
     } else {
-      if (count % 2 === 1) room.direction *= -1;
+      // 3人以上：奇数枚なら反転、偶数枚なら反転の反転で元の向き
+      if (count % 2 === 1) {
+        room.direction *= -1;
+        addLog(roomCode, `🔁 リバース(${count}枚)で順番が逆回りになりました！`);
+      } else {
+        addLog(roomCode, `🔁 リバース${count}枚重ね出しにより順番の向きが元に戻りました！`);
+      }
+      step = 1;
     }
-    addLog(roomCode, `🔁 順番が逆回りになりました！`);
   } else if (val === 'skip') {
-    step = 1 + count;
-    const skippedIndex = (room.currentTurnIndex + room.direction + room.players.length * 10) % room.players.length;
-    const skippedPlayer = room.players[skippedIndex];
-    io.to(skippedPlayer.id).emit('notification', 'スキップされました！');
-    addLog(roomCode, `⏭️ ${skippedPlayer.name} がスキップされました！`);
+    if (numPlayers === 2) {
+      // 2人対戦時は何枚重ねても相手がスキップされて自分のターン継続
+      const opponentIndex = (room.currentTurnIndex + 1) % 2;
+      const opponent = room.players[opponentIndex];
+      io.to(opponent.id).emit('notification', `スキップ(${count}枚)されました！`);
+      addLog(roomCode, `⏭️ ${opponent.name} がスキップ(${count}枚)されました！`);
+      step = 0;
+    } else {
+      // 3人以上：出した枚数分（count人分）を順番にスキップ
+      const skippedNames = [];
+      for (let i = 1; i <= count; i++) {
+        const skippedIndex = (room.currentTurnIndex + (i * room.direction) + numPlayers * 10) % numPlayers;
+        const skippedPlayer = room.players[skippedIndex];
+        if (skippedPlayer.id !== player.id) {
+          io.to(skippedPlayer.id).emit('notification', 'スキップされました！');
+        }
+        skippedNames.push(skippedPlayer.name);
+      }
+      addLog(roomCode, `⏭️ スキップ${count}枚により ${skippedNames.join('、')} がスキップされました！`);
+      step = 1 + count;
+    }
   } else if (val === 'draw2') {
     room.drawStack += 2 * count;
     io.to(roomCode).emit('notification', `ドロー${room.drawStack}！`);
@@ -202,8 +232,9 @@ function executePlayCards(roomCode, player, selectedCards, chosenColor) {
     io.to(roomCode).emit('notification', `ドロー${room.drawStack}！`);
   }
 
+  // ドロー重複がオフの場合、即座に次のプレイヤーに引かせてスキップ
   if (room.drawStack > 0 && !room.settings.stackDraw) {
-    const targetIndex = (room.currentTurnIndex + room.direction + room.players.length * 10) % room.players.length;
+    const targetIndex = (room.currentTurnIndex + room.direction + numPlayers * 10) % numPlayers;
     const targetPlayer = room.players[targetIndex];
     const drawn = drawCardsFromDeck(room, room.drawStack);
     targetPlayer.hand.push(...drawn);
@@ -216,7 +247,7 @@ function executePlayCards(roomCode, player, selectedCards, chosenColor) {
   advanceTurn(roomCode, step);
 }
 
-// 1枚ずつ自動ドローする処理（以前より0.5秒遅く：1050ms間隔）
+// 1枚ずつ自動ドローする処理（1050ms間隔）
 function startStepByStepAutoDraw(roomCode, player) {
   const room = rooms[roomCode];
   if (!room || room.state !== 'playing') return;
@@ -270,7 +301,7 @@ function startStepByStepAutoDraw(roomCode, player) {
       io.to(player.id).emit('notification', '出せるカードが出なかったためターン終了');
       setTimeout(() => advanceTurn(roomCode, 1), 800);
     }
-  }, 800);
+  }, 1050);
 }
 
 function advanceTurn(roomCode, step = 1) {
@@ -285,7 +316,7 @@ function advanceTurn(roomCode, step = 1) {
   room.isAutoDrawing = false;
 
   const numPlayers = room.players.length;
-  room.currentTurnIndex = (room.currentTurnIndex + (step * room.direction) + numPlayers * 10) % numPlayers;
+  room.currentTurnIndex = (room.currentTurnIndex + (step * room.direction) + numPlayers * 100) % numPlayers;
   const nextPlayer = room.players[room.currentTurnIndex];
 
   nextPlayer.unoDeclaredThisTurn = false;
@@ -471,7 +502,6 @@ io.on('connection', (socket) => {
     broadcastLobbyState(socket.roomCode);
   });
 
-  // 順番シャッフル機能（ホストのみ）
   socket.on('shuffleOrder', () => {
     const room = rooms[socket.roomCode];
     if (!room || room.state !== 'lobby') return;
@@ -511,7 +541,6 @@ io.on('connection', (socket) => {
     });
   });
 
-  // カウントダウン（STARTなし、3 → 2 → 1 のみ）
   socket.on('startGame', ({ force }) => {
     const room = rooms[socket.roomCode];
     if (!room || room.state !== 'lobby') return;

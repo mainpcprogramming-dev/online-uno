@@ -119,7 +119,6 @@ function emitSettingsUpdate() {
   document.getElementById(id).addEventListener('input', emitSettingsUpdate);
 });
 
-// 順番シャッフルボタン
 document.getElementById('btn-shuffle-order').addEventListener('click', () => {
   if (!isHost) return;
   socket.emit('shuffleOrder');
@@ -174,7 +173,7 @@ socket.on('gameLog', (msg) => {
   logList.scrollTop = logList.scrollHeight;
 });
 
-// --- カウントダウン（STARTなし、3 → 2 → 1） ---
+// --- カウントダウン ---
 socket.on('startCountdown', () => {
   document.getElementById('countdown-overlay').classList.remove('hidden');
 });
@@ -289,7 +288,6 @@ function toggleSelectCard(card) {
   renderGame(currentGameState);
 }
 
-// 数字・記号が必ずはっきり見える間隔を保ちつつ、枚数が増えたら横スクロールできるように配置
 function adjustHandLayout() {
   const container = document.getElementById('my-hand-container');
   const handEl = document.getElementById('my-hand');
@@ -299,7 +297,6 @@ function adjustHandLayout() {
 
   const containerWidth = container.clientWidth - 16;
   const cardWidth = cards[0].offsetWidth || 66;
-  // 数字や記号が隠れない最小の露出幅（32px）を確保し、それ以上増えたら横スクロールさせる
   const minVisibleStep = 32;
   const maxOverlapMargin = -(cardWidth - minVisibleStep);
 
@@ -315,13 +312,11 @@ function adjustHandLayout() {
     const idealMargin = idealStep - cardWidth;
 
     if (idealMargin >= maxOverlapMargin) {
-      // 画面内に十分見やすく収まる場合は中央揃えで重ねる
       handEl.style.justifyContent = 'center';
       cards.forEach((c, idx) => {
         c.style.marginLeft = idx === 0 ? '0px' : `${idealMargin}px`;
       });
     } else {
-      // 枚数が多すぎる場合は見やすい最小間隔（32px）をキープして左揃え＆横スクロール有効化
       handEl.style.justifyContent = 'flex-start';
       cards.forEach((c, idx) => {
         c.style.marginLeft = idx === 0 ? '0px' : `${maxOverlapMargin}px`;
@@ -333,7 +328,10 @@ function adjustHandLayout() {
 function renderGame(state) {
   const othersContainer = document.getElementById('other-players-bar');
   othersContainer.innerHTML = '';
+  let activeTurnPlayer = null;
+
   state.players.forEach(p => {
+    if (p.isTurn) activeTurnPlayer = p;
     const isMe = p.id === myId;
     const badge = document.createElement('div');
     badge.className = `other-player-card ${p.isTurn ? 'active-turn' : ''} ${isMe ? 'is-me-card' : ''}`;
@@ -346,6 +344,18 @@ function renderGame(state) {
     `;
     othersContainer.appendChild(badge);
   });
+
+  // 常時ターン表示インジケーターの更新
+  const turnPill = document.getElementById('turn-status-pill');
+  if (activeTurnPlayer) {
+    if (activeTurnPlayer.id === myId) {
+      turnPill.textContent = state.isAutoDrawing ? '📥 あなたの番（自動ドロー中...）' : '✨ あなたの番です';
+      turnPill.className = 'turn-pill my-turn-active';
+    } else {
+      turnPill.textContent = `${activeTurnPlayer.name}さんの番です`;
+      turnPill.className = 'turn-pill other-turn-active';
+    }
+  }
 
   const discardContainer = document.getElementById('discard-pile');
   discardContainer.innerHTML = '';
@@ -381,7 +391,7 @@ function renderGame(state) {
   btnUno.disabled = !state.canDeclareUno;
 }
 
-// 並び替えボタン（黒カード一番右、左から赤・青・黄・緑の数字順、配置を保存）
+// 並び替えボタン
 document.getElementById('btn-sort-hand').addEventListener('click', () => {
   if (!currentGameState) return;
   const colorOrder = { red: 0, blue: 1, yellow: 2, green: 3, black: 4 };
@@ -426,7 +436,7 @@ document.querySelectorAll('.color-btn').forEach(btn => {
   });
 });
 
-// UNO宣言ボタン（1ターン1回まで）
+// UNO宣言ボタン
 document.getElementById('btn-uno-declare').addEventListener('click', () => {
   if (!currentGameState || !currentGameState.canDeclareUno) return;
   currentGameState.canDeclareUno = false;

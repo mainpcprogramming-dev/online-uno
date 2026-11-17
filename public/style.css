@@ -388,7 +388,7 @@ input[type="text"] {
   justify-content: center;
   align-items: center;
   gap: 16px;
-  margin: 4px 0;
+  margin: 2px 0;
 }
 
 .discard-area {
@@ -420,6 +420,34 @@ input[type="text"] {
   border-radius: 6px;
   color: #fff;
   font-size: 0.8rem;
+}
+
+/* 常時ターン表示インジケーター（コンパクト＆邪魔にならないデザイン） */
+.turn-indicator-wrap {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin: 2px 0;
+}
+
+.turn-pill {
+  padding: 3px 14px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: bold;
+  letter-spacing: 0.03em;
+}
+
+.turn-pill.my-turn-active {
+  background: rgba(250, 204, 21, 0.2);
+  color: #fef08a;
+  border: 1.5px solid #facc15;
+}
+
+.turn-pill.other-turn-active {
+  background: #0f172a;
+  color: #94a3b8;
+  border: 1px solid #334155;
 }
 
 /* UNOカードデザイン */
@@ -476,7 +504,6 @@ input[type="text"] {
 .card-green .card-symbol { color: #16a34a; }
 .card-black .card-symbol { color: #111827; }
 
-/* 重ねても数字がくっきり見えるよう左上数字を大きく強調 */
 .corner-top, .corner-bottom {
   position: absolute;
   font-size: 1.05rem;
@@ -517,7 +544,7 @@ input[type="text"] {
   grid-template-columns: repeat(4, 1fr);
   gap: 6px;
   width: 100%;
-  margin: 4px 0;
+  margin: 2px 0;
 }
 
 .btn-act {
@@ -527,10 +554,10 @@ input[type="text"] {
   text-align: center;
 }
 
-/* 自分の手札（横スクロール対応＆見やすい間隔） */
+/* 自分の手札 */
 .my-hand-container {
   background: #0f172a;
-  padding: 20px 10px 8px;
+  padding: 18px 10px 8px;
   border-radius: 10px;
   border: 2px solid #334155;
   width: 100%;
@@ -556,7 +583,7 @@ input[type="text"] {
 .my-hand {
   display: flex;
   align-items: center;
-  min-height: 118px;
+  min-height: 116px;
   min-width: 100%;
   width: max-content;
 }
@@ -605,7 +632,7 @@ input[type="text"] {
 @media (max-width: 900px) {
   .game-layout {
     grid-template-columns: 1fr;
-    grid-template-rows: 1fr 165px;
+    grid-template-rows: 1fr 160px;
     gap: 6px;
   }
 
@@ -614,31 +641,31 @@ input[type="text"] {
   }
 
   .uno-card {
-    width: 66px;
-    height: 100px;
+    width: 64px;
+    height: 96px;
     border-width: 3px;
   }
 
   .card-oval {
-    width: 50px;
-    height: 76px;
+    width: 48px;
+    height: 72px;
   }
 
   .card-symbol {
-    font-size: 1.45rem;
+    font-size: 1.4rem;
   }
 
   .my-hand-container {
-    padding: 18px 8px 6px;
+    padding: 16px 8px 6px;
   }
 
   .my-hand {
-    min-height: 104px;
+    min-height: 100px;
   }
 
   .game-sidebar {
     flex-direction: row;
-    height: 165px;
+    height: 160px;
   }
 
   .sidebar-box {

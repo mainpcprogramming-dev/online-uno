@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ONLINE UNO</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- 画面上部の通知バナー -->
+  <div id="banner-container"></div>
+
+  <!-- 1. ホーム画面 -->
+  <section id="home-screen" class="screen active">
+    <div class="home-card">
+      <h1 class="game-logo">UNO <span>ONLINE</span></h1>
+      <div class="input-group">
+        <label for="player-name">プレイヤー名</label>
+        <input type="text" id="player-name" placeholder="名前を入力してください" maxlength="12">
+      </div>
+      <div class="home-actions">
+        <button id="btn-create-room" class="btn btn-primary">部屋の作成</button>
+        <div class="join-box">
+          <input type="text" id="room-code-input" placeholder="4桁の部屋コード" maxlength="4" pattern="\d*">
+          <button id="btn-join-room" class="btn btn-secondary">部屋の参加</button>
+        </div>
+      </div>
+      <p id="home-error" class="error-text"></p>
+    </div>
+  </section>
+
+  <!-- 2. 部屋設定・待機画面 -->
+  <section id="lobby-screen" class="screen">
+    <div class="lobby-header">
+      <h2>部屋コード: <span id="display-room-code" class="code-badge">----</span></h2>
+      <button id="btn-leave-lobby" class="btn btn-danger btn-sm">退出</button>
+    </div>
+
+    <div class="lobby-grid">
+      <!-- 左側：プレイヤー一覧 & スタート操作 -->
+      <div class="lobby-panel">
+        <h3>参加プレイヤー</h3>
+        <ul id="lobby-player-list" class="player-list"></ul>
+        <div class="lobby-controls">
+          <button id="btn-toggle-ready" class="btn btn-ready-off">準備OKを押す</button>
+          <div id="host-start-controls" class="host-only hidden">
+            <button id="btn-start-game" class="btn btn-primary">ゲームスタート</button>
+            <button id="btn-force-start" class="btn btn-warning">強制スタート</button>
+          </div>
+        </div>
+        <p id="lobby-error" class="error-text"></p>
+      </div>
+
+      <!-- 中央：リアルタイムルール設定 -->
+      <div class="lobby-panel">
+        <h3>ルール設定 <small id="settings-note">(部屋作成者が変更可能)</small></h3>
+        <div class="setting-item">
+          <label>初期カード枚数: <strong id="val-initial-cards">7</strong>枚</label>
+          <input type="range" id="set-initial-cards" min="3" max="15" value="7" disabled>
+        </div>
+        <div class="setting-item">
+          <label>各プレイヤーのターン時間: <strong id="val-turn-time">30</strong>秒</label>
+          <input type="range" id="set-turn-time" min="10" max="90" step="5" value="30" disabled>
+        </div>
+        <div class="setting-item toggle-row">
+          <span>出せるカードが出るまで引く</span>
+          <label class="switch">
+            <input type="checkbox" id="set-draw-until" disabled>
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="setting-item toggle-row">
+          <span>ドロー10の追加（黒カード2枚）</span>
+          <label class="switch">
+            <input type="checkbox" id="set-draw10" disabled>
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="setting-item toggle-row">
+          <span>カードの重ね出し禁止</span>
+          <label class="switch">
+            <input type="checkbox" id="set-no-multi" disabled>
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="setting-item toggle-row">
+          <span>ドロー2・4の重複（累積）</span>
+          <label class="switch">
+            <input type="checkbox" id="set-stack-draw" checked disabled>
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+
+      <!-- 右側：待機室チャット -->
+      <div class="lobby-panel chat-panel">
+        <h3>待機室チャット</h3>
+        <div id="lobby-chat-box" class="chat-messages"></div>
+        <form id="lobby-chat-form" class="chat-input-form">
+          <input type="text" id="lobby-chat-input" placeholder="メッセージを入力..." autocomplete="off">
+          <button type="submit" class="btn btn-primary btn-sm">送信</button>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3. ゲームプレイ画面 -->
+  <section id="game-screen" class="screen">
+    <div class="game-layout">
+      <!-- メインプレイエリア -->
+      <div class="play-area">
+        <!-- 上部：他プレイヤー情報 & タイマー -->
+        <div class="top-bar">
+          <div id="other-players-bar" class="other-players"></div>
+          <div class="timer-box">
+            残り時間: <span id="turn-timer">30</span>秒
+          </div>
+        </div>
+
+        <!-- 中央：場札・山札・現在の色・ドロー累積表示 -->
+        <div class="table-center">
+          <div id="deck-pile" class="uno-card card-back" title="出せるカードがない時にクリックして引く">
+            <div class="card-inner">UNO</div>
+            <span class="deck-label">山札を引く</span>
+          </div>
+
+          <div class="discard-area">
+            <div id="discard-pile"></div>
+            <div class="field-status">
+              <div>現在の色: <span id="current-color-indicator" class="color-dot"></span></div>
+              <div id="draw-stack-badge" class="stack-badge hidden">累積ドロー: +0</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- アクションボタンエリア -->
+        <div class="action-bar">
+          <button id="btn-sort-hand" class="btn btn-info">並び替え</button>
+          <button id="btn-play-card" class="btn btn-primary" disabled>選択したカードを出す</button>
+          <button id="btn-uno-declare" class="btn btn-uno" disabled>UNO宣言！</button>
+          <button id="btn-uno-accuse" class="btn btn-danger">UNO告発</button>
+        </div>
+
+        <!-- 下部：自分の手札（横スクロール対応） -->
+        <div class="my-hand-container">
+          <div id="my-hand" class="my-hand"></div>
+        </div>
+      </div>
+
+      <!-- 右サイドバー：ゲーム進行ログ & ゲーム内チャット -->
+      <div class="game-sidebar">
+        <div class="sidebar-box log-box">
+          <h4>ゲーム進行ログ</h4>
+          <div id="game-log-list" class="log-messages"></div>
+        </div>
+        <div class="sidebar-box game-chat-box">
+          <h4>チャット</h4>
+          <div id="game-chat-messages" class="chat-messages"></div>
+          <form id="game-chat-form" class="chat-input-form">
+            <input type="text" id="game-chat-input" placeholder="チャット..." autocomplete="off">
+            <button type="submit" class="btn btn-primary btn-sm">送信</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- カウントダウンオーバーレイ -->
+  <div id="countdown-overlay" class="modal hidden">
+    <div id="countdown-number" class="countdown-text">3</div>
+  </div>
+
+  <!-- ワイルドカード色選択モーダル -->
+  <div id="color-picker-modal" class="modal hidden">
+    <div class="modal-content">
+      <h3>変更する色を選択してください</h3>
+      <div class="color-choices">
+        <button class="color-btn bg-red" data-color="red">赤</button>
+        <button class="color-btn bg-blue" data-color="blue">青</button>
+        <button class="color-btn bg-yellow" data-color="yellow">黄</button>
+        <button class="color-btn bg-green" data-color="green">緑</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- UNO告発対象選択モーダル -->
+  <div id="accuse-modal" class="modal hidden">
+    <div class="modal-content">
+      <h3>UNO宣言を忘れているプレイヤーを告発</h3>
+      <p>告発するプレイヤーを選択してください（失敗すると1回休み）</p>
+      <div id="accuse-player-list" class="accuse-list"></div>
+      <button id="btn-close-accuse" class="btn btn-secondary">キャンセル</button>
+    </div>
+  </div>
+
+  <!-- ゲーム終了モーダル -->
+  <div id="gameover-modal" class="modal hidden">
+    <div class="modal-content">
+      <h2>🎉 ゲーム終了！ 🎉</h2>
+      <p id="winner-text" class="winner-announce"></p>
+      <button id="btn-back-to-lobby" class="btn btn-primary">待機室へ戻る</button>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="client.js"></script>
+</body>
+</html>

@@ -216,6 +216,7 @@ function executePlayCards(roomCode, player, selectedCards, chosenColor) {
   advanceTurn(roomCode, step);
 }
 
+// 1枚ずつ自動ドローする処理（以前より0.5秒遅く：1050ms間隔）
 function startStepByStepAutoDraw(roomCode, player) {
   const room = rooms[roomCode];
   if (!room || room.state !== 'playing') return;
@@ -267,9 +268,9 @@ function startStepByStepAutoDraw(roomCode, player) {
       room.isAutoDrawing = false;
       addLog(roomCode, `📥 ${player.name} は1枚引きましたが、出せるカードがないためターン終了です。`);
       io.to(player.id).emit('notification', '出せるカードが出なかったためターン終了');
-      setTimeout(() => advanceTurn(roomCode, 1), 600);
+      setTimeout(() => advanceTurn(roomCode, 1), 800);
     }
-  }, 550);
+  }, 800);
 }
 
 function advanceTurn(roomCode, step = 1) {
@@ -287,7 +288,6 @@ function advanceTurn(roomCode, step = 1) {
   room.currentTurnIndex = (room.currentTurnIndex + (step * room.direction) + numPlayers * 10) % numPlayers;
   const nextPlayer = room.players[room.currentTurnIndex];
 
-  // 新しいターン開始時にUNO宣言の1ターン1回制限フラグをリセット
   nextPlayer.unoDeclaredThisTurn = false;
 
   if (nextPlayer.skipNextTurn) {
@@ -471,6 +471,22 @@ io.on('connection', (socket) => {
     broadcastLobbyState(socket.roomCode);
   });
 
+  // 順番シャッフル機能（ホストのみ）
+  socket.on('shuffleOrder', () => {
+    const room = rooms[socket.roomCode];
+    if (!room || room.state !== 'lobby') return;
+    const player = room.players.find(p => p.id === socket.id);
+    if (!player || !player.isHost) return;
+
+    if (room.players.length < 2) {
+      socket.emit('errorMsg', 'シャッフルするには2人以上のプレイヤーが必要です。');
+      return;
+    }
+
+    shuffle(room.players);
+    broadcastLobbyState(socket.roomCode);
+  });
+
   socket.on('toggleReady', () => {
     const room = rooms[socket.roomCode];
     if (!room || room.state !== 'lobby') return;
@@ -495,6 +511,7 @@ io.on('connection', (socket) => {
     });
   });
 
+  // カウントダウン（STARTなし、3 → 2 → 1 のみ）
   socket.on('startGame', ({ force }) => {
     const room = rooms[socket.roomCode];
     if (!room || room.state !== 'lobby') return;
@@ -516,10 +533,12 @@ io.on('connection', (socket) => {
     io.to(room.code).emit('startCountdown');
 
     let count = 3;
+    io.to(room.code).emit('countdownTick', count);
     const cdInterval = setInterval(() => {
-      io.to(room.code).emit('countdownTick', count);
       count--;
-      if (count < 0) {
+      if (count >= 1) {
+        io.to(room.code).emit('countdownTick', count);
+      } else {
         clearInterval(cdInterval);
         initializeGame(room.code);
       }
@@ -560,14 +579,12 @@ io.on('connection', (socket) => {
     advanceTurn(roomCode, 1);
   }
 
-  // UNO宣言ボタン（自分のターンのみ、1ターンに1回が上限）
   socket.on('declareUno', () => {
     const room = rooms[socket.roomCode];
     if (!room || room.state !== 'playing' || room.isAutoDrawing) return;
     const currentPlayer = room.players[room.currentTurnIndex];
     if (currentPlayer.id !== socket.id) return;
 
-    // すでにこのターンで宣言済みの場合は無視
     if (currentPlayer.unoDeclaredThisTurn) return;
 
     currentPlayer.unoDeclaredThisTurn = true;

@@ -422,17 +422,17 @@ input[type="text"] {
   font-size: 0.8rem;
 }
 
-/* UNOカードデザイン（横揺れアニメーション完全削除） */
+/* UNOカードデザイン */
 .uno-card {
   width: 76px;
   height: 114px;
   border-radius: 10px;
-  border: 4px solid #ffffff;
+  border: 3.5px solid #ffffff;
   position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: -2px 4px 10px rgba(0, 0, 0, 0.55);
+  box-shadow: -3px 4px 10px rgba(0, 0, 0, 0.65);
   user-select: none;
   flex-shrink: 0;
 }
@@ -444,7 +444,7 @@ input[type="text"] {
 .my-hand .uno-card.selected {
   transform: translateY(-16px);
   z-index: 20;
-  box-shadow: 0 0 0 3px #facc15, 0 8px 16px rgba(0, 0, 0, 0.8);
+  box-shadow: 0 0 0 3px #facc15, 0 8px 16px rgba(0, 0, 0, 0.85);
 }
 
 .card-red, .bg-red { background: #dc2626; }
@@ -476,16 +476,18 @@ input[type="text"] {
 .card-green .card-symbol { color: #16a34a; }
 .card-black .card-symbol { color: #111827; }
 
+/* 重ねても数字がくっきり見えるよう左上数字を大きく強調 */
 .corner-top, .corner-bottom {
   position: absolute;
-  font-size: 0.85rem;
+  font-size: 1.05rem;
   font-weight: 900;
   color: #ffffff;
-  text-shadow: 1px 1px 2px #000;
+  text-shadow: 1.5px 1.5px 2px #000, -1px -1px 1px rgba(0,0,0,0.6);
+  line-height: 1;
 }
 
-.corner-top { top: 4px; left: 6px; }
-.corner-bottom { bottom: 4px; right: 6px; transform: rotate(180deg); }
+.corner-top { top: 4px; left: 5px; }
+.corner-bottom { bottom: 4px; right: 5px; transform: rotate(180deg); }
 
 .card-back {
   background: #111827;
@@ -525,22 +527,38 @@ input[type="text"] {
   text-align: center;
 }
 
-/* 自分の手札 */
+/* 自分の手札（横スクロール対応＆見やすい間隔） */
 .my-hand-container {
   background: #0f172a;
   padding: 20px 10px 8px;
   border-radius: 10px;
   border: 2px solid #334155;
   width: 100%;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+
+.my-hand-container::-webkit-scrollbar {
+  height: 7px;
+}
+
+.my-hand-container::-webkit-scrollbar-track {
+  background: #1e293b;
+  border-radius: 4px;
+}
+
+.my-hand-container::-webkit-scrollbar-thumb {
+  background: #38bdf8;
+  border-radius: 4px;
 }
 
 .my-hand {
   display: flex;
-  justify-content: center;
   align-items: center;
   min-height: 118px;
-  width: 100%;
+  min-width: 100%;
+  width: max-content;
 }
 
 /* サイドバー */
@@ -596,18 +614,18 @@ input[type="text"] {
   }
 
   .uno-card {
-    width: 64px;
-    height: 98px;
+    width: 66px;
+    height: 100px;
     border-width: 3px;
   }
 
   .card-oval {
-    width: 48px;
-    height: 74px;
+    width: 50px;
+    height: 76px;
   }
 
   .card-symbol {
-    font-size: 1.4rem;
+    font-size: 1.45rem;
   }
 
   .my-hand-container {
@@ -615,7 +633,7 @@ input[type="text"] {
   }
 
   .my-hand {
-    min-height: 102px;
+    min-height: 104px;
   }
 
   .game-sidebar {

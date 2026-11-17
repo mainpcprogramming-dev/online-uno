@@ -63,6 +63,7 @@ socket.on('roomJoined', ({ roomCode, isHost: hostFlag }) => {
   const inputs = document.querySelectorAll('#lobby-screen input[type="range"], #lobby-screen input[type="checkbox"]');
   inputs.forEach(el => el.disabled = !isHost);
   document.getElementById('host-start-controls').classList.toggle('hidden', !isHost);
+  document.getElementById('host-shuffle-area').classList.toggle('hidden', !isHost);
   document.getElementById('settings-note').textContent = isHost ? '(あなたが変更可能)' : '(作成者が変更可能)';
 
   showScreen('lobby-screen');
@@ -77,12 +78,12 @@ socket.on('lobbyUpdate', ({ players, settings }) => {
   const list = document.getElementById('lobby-player-list');
   list.innerHTML = '';
 
-  players.forEach(p => {
+  players.forEach((p, idx) => {
     const li = document.createElement('li');
     li.className = `player-item ${p.isReady ? 'ready-ok' : 'ready-wait'}`;
     const crown = p.isHost ? '👑' : '';
     const statusText = p.isReady ? '準備OK' : '準備中';
-    li.innerHTML = `<span>${crown}${escapeHtml(p.name)}</span><span class="status-pill">${statusText}</span>`;
+    li.innerHTML = `<span>${idx + 1}. ${crown}${escapeHtml(p.name)}</span><span class="status-pill">${statusText}</span>`;
     list.appendChild(li);
 
     if (p.id === myId) {
@@ -116,6 +117,12 @@ function emitSettingsUpdate() {
 
 ['set-initial-cards', 'set-turn-time', 'set-draw-until', 'set-draw10', 'set-no-multi', 'set-stack-draw'].forEach(id => {
   document.getElementById(id).addEventListener('input', emitSettingsUpdate);
+});
+
+// 順番シャッフルボタン
+document.getElementById('btn-shuffle-order').addEventListener('click', () => {
+  if (!isHost) return;
+  socket.emit('shuffleOrder');
 });
 
 document.getElementById('btn-toggle-ready').addEventListener('click', () => {
@@ -167,13 +174,13 @@ socket.on('gameLog', (msg) => {
   logList.scrollTop = logList.scrollHeight;
 });
 
-// --- カウントダウン & ゲーム開始 ---
+// --- カウントダウン（STARTなし、3 → 2 → 1） ---
 socket.on('startCountdown', () => {
   document.getElementById('countdown-overlay').classList.remove('hidden');
 });
 
 socket.on('countdownTick', (num) => {
-  document.getElementById('countdown-number').textContent = num === 0 ? 'START!' : num;
+  document.getElementById('countdown-number').textContent = num;
 });
 
 socket.on('gameStarted', () => {
@@ -225,7 +232,7 @@ socket.on('gameStateUpdate', (state) => {
 });
 
 window.addEventListener('resize', () => {
-  if (currentGameState) adjustHandOverlap();
+  if (currentGameState) adjustHandLayout();
 });
 
 function getCardLabel(value) {
@@ -282,27 +289,44 @@ function toggleSelectCard(card) {
   renderGame(currentGameState);
 }
 
-function adjustHandOverlap() {
+// 数字・記号が必ずはっきり見える間隔を保ちつつ、枚数が増えたら横スクロールできるように配置
+function adjustHandLayout() {
   const container = document.getElementById('my-hand-container');
   const handEl = document.getElementById('my-hand');
   const cards = handEl.querySelectorAll('.uno-card');
   const count = cards.length;
   if (count === 0) return;
 
-  const containerWidth = container.clientWidth - 20;
-  const cardWidth = cards[0].offsetWidth || 64;
-  const totalWidthNeeded = count * cardWidth + (count - 1) * 6;
+  const containerWidth = container.clientWidth - 16;
+  const cardWidth = cards[0].offsetWidth || 66;
+  // 数字や記号が隠れない最小の露出幅（32px）を確保し、それ以上増えたら横スクロールさせる
+  const minVisibleStep = 32;
+  const maxOverlapMargin = -(cardWidth - minVisibleStep);
 
-  if (totalWidthNeeded <= containerWidth) {
+  const totalWidthNoOverlap = count * cardWidth + (count - 1) * 6;
+
+  if (totalWidthNoOverlap <= containerWidth) {
+    handEl.style.justifyContent = 'center';
     cards.forEach((c, idx) => {
       c.style.marginLeft = idx === 0 ? '0px' : '6px';
     });
   } else {
-    const step = (containerWidth - cardWidth) / (count - 1);
-    const overlapMargin = Math.min(-4, step - cardWidth);
-    cards.forEach((c, idx) => {
-      c.style.marginLeft = idx === 0 ? '0px' : `${overlapMargin}px`;
-    });
+    const idealStep = (containerWidth - cardWidth) / (count - 1);
+    const idealMargin = idealStep - cardWidth;
+
+    if (idealMargin >= maxOverlapMargin) {
+      // 画面内に十分見やすく収まる場合は中央揃えで重ねる
+      handEl.style.justifyContent = 'center';
+      cards.forEach((c, idx) => {
+        c.style.marginLeft = idx === 0 ? '0px' : `${idealMargin}px`;
+      });
+    } else {
+      // 枚数が多すぎる場合は見やすい最小間隔（32px）をキープして左揃え＆横スクロール有効化
+      handEl.style.justifyContent = 'flex-start';
+      cards.forEach((c, idx) => {
+        c.style.marginLeft = idx === 0 ? '0px' : `${maxOverlapMargin}px`;
+      });
+    }
   }
 }
 
@@ -348,13 +372,11 @@ function renderGame(state) {
     handContainer.appendChild(createCardElement(card, true));
   });
 
-  adjustHandOverlap();
+  adjustHandLayout();
 
-  // ボタンの有効/無効制御
   const btnPlay = document.getElementById('btn-play-card');
   btnPlay.disabled = !state.isMyTurn || selectedCardIds.length === 0;
 
-  // UNO宣言は自分のターンのみ、かつ1ターン1回まで
   const btnUno = document.getElementById('btn-uno-declare');
   btnUno.disabled = !state.canDeclareUno;
 }

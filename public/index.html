@@ -38,12 +38,15 @@
     </div>
 
     <div class="lobby-grid">
-      <!-- 左側：プレイヤー一覧 & スタート操作 -->
+      <!-- 左側：プレイヤー一覧（上からターン順） & スタート操作 -->
       <div class="lobby-panel">
-        <h3>参加プレイヤー</h3>
+        <h3>参加プレイヤー <small>(上からターン順)</small></h3>
         <ul id="lobby-player-list" class="player-list"></ul>
         <div class="lobby-controls">
           <button id="btn-toggle-ready" class="btn btn-ready-off">準備OKを押す</button>
+          <div id="host-shuffle-area" class="hidden">
+            <button id="btn-shuffle-order" class="btn btn-info" style="width: 100%;">🔀 順番をシャッフル</button>
+          </div>
           <div id="host-start-controls" class="host-only hidden">
             <button id="btn-start-game" class="btn btn-primary">スタート</button>
             <button id="btn-force-start" class="btn btn-warning">強制スタート</button>
@@ -105,12 +108,12 @@
     </div>
   </section>
 
-  <!-- 3. ゲームプレイ画面（1画面完結型レスポンシブ） -->
+  <!-- 3. ゲームプレイ画面 -->
   <section id="game-screen" class="screen">
     <div class="game-layout">
       <!-- メインプレイエリア -->
       <div class="play-area">
-        <!-- 上部：他プレイヤー情報 & タイマー -->
+        <!-- 上部：プレイヤー情報 & タイマー -->
         <div class="top-bar">
           <div id="other-players-bar" class="other-players"></div>
           <div class="timer-box">
@@ -142,7 +145,7 @@
           <button id="btn-uno-accuse" class="btn btn-danger btn-act">UNO告発</button>
         </div>
 
-        <!-- 下部：自分の手札（枚数に応じて自動重ね表示） -->
+        <!-- 下部：自分の手札（見やすい間隔で重なり＋多い時は横スクロール） -->
         <div class="my-hand-container" id="my-hand-container">
           <div id="my-hand" class="my-hand"></div>
         </div>

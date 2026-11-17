@@ -75,12 +75,7 @@ html, body {
   font-weight: bold;
   font-size: 0.95rem;
   cursor: pointer;
-  transition: transform 0.1s, opacity 0.2s;
   white-space: nowrap;
-}
-
-.btn:hover:not(:disabled) {
-  transform: translateY(-1px);
 }
 
 .btn:disabled {
@@ -359,9 +354,14 @@ input[type="text"] {
   flex-shrink: 0;
 }
 
+.other-player-card.is-me-card {
+  background: #172554;
+  border-color: #38bdf8;
+}
+
 .other-player-card.active-turn {
   border-color: #facc15;
-  box-shadow: 0 0 8px rgba(250, 204, 21, 0.5);
+  box-shadow: 0 0 8px rgba(250, 204, 21, 0.6);
 }
 
 .uno-tag {
@@ -422,7 +422,7 @@ input[type="text"] {
   font-size: 0.8rem;
 }
 
-/* UNOカードデザイン */
+/* UNOカードデザイン（横揺れアニメーション完全削除） */
 .uno-card {
   width: 76px;
   height: 114px;
@@ -435,7 +435,6 @@ input[type="text"] {
   box-shadow: -2px 4px 10px rgba(0, 0, 0, 0.55);
   user-select: none;
   flex-shrink: 0;
-  transition: transform 0.15s, margin 0.15s;
 }
 
 .my-hand .uno-card {
@@ -526,7 +525,7 @@ input[type="text"] {
   text-align: center;
 }
 
-/* 自分の手札（幅いっぱいに収め、多い場合は自動で重ねる） */
+/* 自分の手札 */
 .my-hand-container {
   background: #0f172a;
   padding: 20px 10px 8px;
@@ -544,7 +543,7 @@ input[type="text"] {
   width: 100%;
 }
 
-/* サイドバー（PCは右、スマホは下部にコンパクト配置） */
+/* サイドバー */
 .game-sidebar {
   display: flex;
   flex-direction: column;

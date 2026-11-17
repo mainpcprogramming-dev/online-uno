@@ -5,6 +5,7 @@ let isHost = false;
 let currentGameState = null;
 let selectedCardIds = [];
 let pendingPlayCardIds = [];
+let savedCardOrder = [];
 
 socket.on('connect', () => {
   myId = socket.id;
@@ -181,13 +182,8 @@ socket.on('gameStarted', () => {
   document.getElementById('game-chat-messages').innerHTML = '';
   document.getElementById('game-log-list').innerHTML = '';
   selectedCardIds = [];
+  savedCardOrder = [];
   showScreen('game-screen');
-});
-
-// 強制ドローで黒カードを引いた時の自動出し用色選択プロンプト
-socket.on('promptAutoWildColor', ({ cardId }) => {
-  pendingPlayCardIds = [cardId];
-  document.getElementById('color-picker-modal').classList.remove('hidden');
 });
 
 // --- ゲーム状態描画 ---
@@ -212,6 +208,18 @@ socket.on('accusationResult', ({ success, message }) => {
 });
 
 socket.on('gameStateUpdate', (state) => {
+  if (savedCardOrder.length > 0) {
+    state.myHand.sort((a, b) => {
+      const idxA = savedCardOrder.indexOf(a.id);
+      const idxB = savedCardOrder.indexOf(b.id);
+      if (idxA === -1 && idxB === -1) return 0;
+      if (idxA === -1) return 1;
+      if (idxB === -1) return -1;
+      return idxA - idxB;
+    });
+  }
+  savedCardOrder = state.myHand.map(c => c.id);
+
   currentGameState = state;
   renderGame(state);
 });
@@ -274,7 +282,6 @@ function toggleSelectCard(card) {
   renderGame(currentGameState);
 }
 
-// 枚数が多い場合に画面幅に合わせてカード同士を自動で重ねる関数
 function adjustHandOverlap() {
   const container = document.getElementById('my-hand-container');
   const handEl = document.getElementById('my-hand');
@@ -283,7 +290,7 @@ function adjustHandOverlap() {
   if (count === 0) return;
 
   const containerWidth = container.clientWidth - 20;
-  const cardWidth = cards[0].offsetWidth || 68;
+  const cardWidth = cards[0].offsetWidth || 64;
   const totalWidthNeeded = count * cardWidth + (count - 1) * 6;
 
   if (totalWidthNeeded <= containerWidth) {
@@ -291,7 +298,6 @@ function adjustHandOverlap() {
       c.style.marginLeft = idx === 0 ? '0px' : '6px';
     });
   } else {
-    // 画面端に行ったら一部重ねて1画面内に収める
     const step = (containerWidth - cardWidth) / (count - 1);
     const overlapMargin = Math.min(-4, step - cardWidth);
     cards.forEach((c, idx) => {
@@ -301,34 +307,31 @@ function adjustHandOverlap() {
 }
 
 function renderGame(state) {
-  // 他プレイヤー表示
   const othersContainer = document.getElementById('other-players-bar');
   othersContainer.innerHTML = '';
   state.players.forEach(p => {
-    if (p.id === myId) return;
+    const isMe = p.id === myId;
     const badge = document.createElement('div');
-    badge.className = `other-player-card ${p.isTurn ? 'active-turn' : ''}`;
+    badge.className = `other-player-card ${p.isTurn ? 'active-turn' : ''} ${isMe ? 'is-me-card' : ''}`;
     const crown = p.isHost ? '👑' : '';
+    const meLabel = isMe ? '(自分)' : '';
     const unoTag = p.unoDeclared ? '<span class="uno-tag">UNO!</span>' : '';
     badge.innerHTML = `
-      <div class="op-name">${crown}${escapeHtml(p.name)} ${unoTag}</div>
+      <div class="op-name">${crown}${escapeHtml(p.name)}${meLabel} ${unoTag}</div>
       <div class="op-cards">残り <strong>${p.cardCount}</strong> 枚</div>
     `;
     othersContainer.appendChild(badge);
   });
 
-  // 場札表示
   const discardContainer = document.getElementById('discard-pile');
   discardContainer.innerHTML = '';
   if (state.topCard) {
     discardContainer.appendChild(createCardElement(state.topCard, false));
   }
 
-  // 現在の色インジケーター
   const colorDot = document.getElementById('current-color-indicator');
   colorDot.className = `color-dot bg-${state.currentColor}`;
 
-  // 累積ドロー表示
   const stackBadge = document.getElementById('draw-stack-badge');
   if (state.drawStack > 0) {
     stackBadge.classList.remove('hidden');
@@ -337,7 +340,6 @@ function renderGame(state) {
     stackBadge.classList.add('hidden');
   }
 
-  // 自分の手札表示
   const handContainer = document.getElementById('my-hand');
   handContainer.innerHTML = '';
   selectedCardIds = selectedCardIds.filter(id => state.myHand.some(c => c.id === id));
@@ -352,14 +354,15 @@ function renderGame(state) {
   const btnPlay = document.getElementById('btn-play-card');
   btnPlay.disabled = !state.isMyTurn || selectedCardIds.length === 0;
 
+  // UNO宣言は自分のターンのみ、かつ1ターン1回まで
   const btnUno = document.getElementById('btn-uno-declare');
-  btnUno.disabled = !state.isMyTurn;
+  btnUno.disabled = !state.canDeclareUno;
 }
 
-// 並び替えボタン
+// 並び替えボタン（黒カード一番右、左から赤・青・黄・緑の数字順、配置を保存）
 document.getElementById('btn-sort-hand').addEventListener('click', () => {
   if (!currentGameState) return;
-  const colorOrder = { black: 0, red: 1, blue: 2, yellow: 3, green: 4 };
+  const colorOrder = { red: 0, blue: 1, yellow: 2, green: 3, black: 4 };
   const valueOrder = {
     '0': 0, '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9,
     skip: 10, reverse: 11, draw2: 12, wild: 13, draw4: 14, draw10: 15
@@ -371,6 +374,8 @@ document.getElementById('btn-sort-hand').addEventListener('click', () => {
     }
     return (valueOrder[a.value] || 99) - (valueOrder[b.value] || 99);
   });
+
+  savedCardOrder = currentGameState.myHand.map(c => c.id);
   renderGame(currentGameState);
 });
 
@@ -399,9 +404,11 @@ document.querySelectorAll('.color-btn').forEach(btn => {
   });
 });
 
-// UNO宣言ボタン
+// UNO宣言ボタン（1ターン1回まで）
 document.getElementById('btn-uno-declare').addEventListener('click', () => {
-  if (!currentGameState || !currentGameState.isMyTurn) return;
+  if (!currentGameState || !currentGameState.canDeclareUno) return;
+  currentGameState.canDeclareUno = false;
+  document.getElementById('btn-uno-declare').disabled = true;
   socket.emit('declareUno');
 });
 

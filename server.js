@@ -11,7 +11,6 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 const rooms = {};
 
-// 4桁のランダムな部屋コード生成
 function generateRoomCode() {
   let code;
   do {
@@ -20,16 +19,13 @@ function generateRoomCode() {
   return code;
 }
 
-// 山札の生成
 function createDeck(settings) {
   const colors = ['red', 'blue', 'yellow', 'green'];
   const deck = [];
   let idCounter = 1;
 
   colors.forEach(color => {
-    // 0は各色1枚
     deck.push({ id: idCounter++, color, value: '0', type: 'number' });
-    // 1〜9, skip, reverse, draw2 は各色2枚
     const values = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'skip', 'reverse', 'draw2'];
     values.forEach(val => {
       const type = isNaN(val) ? 'action' : 'number';
@@ -38,13 +34,13 @@ function createDeck(settings) {
     });
   });
 
-  // 黒カード（ワイルド）: 色変え4枚、ドロー4は4枚固定
+  // 黒カード：色変え4枚、ドロー4は4枚固定
   for (let i = 0; i < 4; i++) {
     deck.push({ id: idCounter++, color: 'black', value: 'wild', type: 'wild' });
     deck.push({ id: idCounter++, color: 'black', value: 'draw4', type: 'wild' });
   }
 
-  // ドロー10がオンの場合は2枚固定で追加
+  // ドロー10がオンの場合は2枚固定
   if (settings.draw10) {
     for (let i = 0; i < 2; i++) {
       deck.push({ id: idCounter++, color: 'black', value: 'draw10', type: 'wild' });
@@ -62,7 +58,6 @@ function shuffle(array) {
   return array;
 }
 
-// カードを引く（山札が切れたら捨て札をシャッフルして補充）
 function drawCardsFromDeck(room, count) {
   const drawn = [];
   for (let i = 0; i < count; i++) {
@@ -77,9 +72,7 @@ function drawCardsFromDeck(room, count) {
   return drawn;
 }
 
-// カードが出せるかどうかの判定
 function canPlayCard(card, topCard, currentColor, drawStack, settings) {
-  // ドロー累積中（ドロー2/4の重複がオンの場合）
   if (drawStack > 0) {
     if (!settings.stackDraw) return false;
     if (topCard.value === 'draw2' && (card.value === 'draw2' || card.value === 'draw4' || card.value === 'draw10')) return true;
@@ -88,17 +81,13 @@ function canPlayCard(card, topCard, currentColor, drawStack, settings) {
     return false;
   }
 
-  // 黒カードはいつでも使える
   if (card.color === 'black') return true;
-  // 現在の場の色と一致
   if (card.color === currentColor) return true;
-  // 数字または記号が一致
   if (card.value === topCard.value) return true;
 
   return false;
 }
 
-// ターンタイマーのリセット＆開始
 function startTurnTimer(roomCode) {
   const room = rooms[roomCode];
   if (!room || room.state !== 'playing') return;
@@ -119,7 +108,6 @@ function startTurnTimer(roomCode) {
   }, 1000);
 }
 
-// 時間切れ時の自動処理
 function handleTurnTimeout(roomCode) {
   const room = rooms[roomCode];
   if (!room || room.state !== 'playing') return;
@@ -142,17 +130,105 @@ function handleTurnTimeout(roomCode) {
   advanceTurn(roomCode, 1);
 }
 
-// 次のターンへ進める
+// カード1枚を場に出したときの共通解決ロジック（手動・自動両対応）
+function executePlayCards(roomCode, player, selectedCards, chosenColor) {
+  const room = rooms[roomCode];
+  if (!room || room.state !== 'playing') return;
+
+  const cardIds = selectedCards.map(c => c.id);
+  player.hand = player.hand.filter(c => !cardIds.includes(c.id));
+  room.discardPile.push(...selectedCards);
+
+  const lastPlayed = selectedCards[selectedCards.length - 1];
+  const count = selectedCards.length;
+
+  if (lastPlayed.color === 'black') {
+    room.currentColor = chosenColor || 'red';
+  } else {
+    room.currentColor = lastPlayed.color;
+  }
+
+  const colorNames = { red: '赤', blue: '青', yellow: '黄', green: '緑', black: '黒' };
+  addLog(roomCode, `🃏 ${player.name} が ${colorNames[lastPlayed.color]}の「${lastPlayed.value}」を ${count}枚 出しました。`);
+
+  // 勝利判定（0枚）
+  if (player.hand.length === 0) {
+    clearInterval(room.turnTimer);
+    room.state = 'lobby';
+    room.players.forEach(p => { p.isReady = false; p.hand = []; });
+    io.to(roomCode).emit('gameOver', { winner: player.name });
+    addLog(roomCode, `🏆 ${player.name} さんの勝利です！`);
+    return;
+  }
+
+  // 残り1枚になった時のUNO宣言チェック
+  if (player.hand.length === 1) {
+    if (player.unoDeclaredValidUntil >= Date.now()) {
+      player.vulnerableUntil = 0;
+      player.accused = false;
+    } else {
+      player.vulnerableUntil = Date.now() + 10000;
+      player.accused = false;
+    }
+  } else {
+    player.vulnerableUntil = 0;
+    player.accused = false;
+  }
+
+  let step = 1;
+  const val = lastPlayed.value;
+
+  if (val === 'reverse') {
+    if (room.players.length === 2) {
+      step = 2;
+    } else {
+      if (count % 2 === 1) room.direction *= -1;
+    }
+    addLog(roomCode, `🔁 順番が逆回りになりました！`);
+  } else if (val === 'skip') {
+    step = 1 + count;
+    const skippedIndex = (room.currentTurnIndex + room.direction + room.players.length * 10) % room.players.length;
+    const skippedPlayer = room.players[skippedIndex];
+    io.to(skippedPlayer.id).emit('notification', 'スキップされました！');
+    addLog(roomCode, `⏭️ ${skippedPlayer.name} がスキップされました！`);
+  } else if (val === 'draw2') {
+    room.drawStack += 2 * count;
+    io.to(roomCode).emit('notification', `ドロー${room.drawStack}！`);
+  } else if (val === 'draw4') {
+    room.drawStack += 4 * count;
+    io.to(roomCode).emit('notification', `ドロー${room.drawStack}！`);
+  } else if (val === 'draw10') {
+    room.drawStack += 10 * count;
+    io.to(roomCode).emit('notification', `ドロー${room.drawStack}！`);
+  }
+
+  // ドロー重複がオフの場合、即座に次のプレイヤーに引かせてスキップ
+  if (room.drawStack > 0 && !room.settings.stackDraw) {
+    const targetIndex = (room.currentTurnIndex + room.direction + room.players.length * 10) % room.players.length;
+    const targetPlayer = room.players[targetIndex];
+    const drawn = drawCardsFromDeck(room, room.drawStack);
+    targetPlayer.hand.push(...drawn);
+    io.to(targetPlayer.id).emit('notification', `ドロー${room.drawStack}！${room.drawStack}枚引きました`);
+    addLog(roomCode, `💥 ${targetPlayer.name} は ${room.drawStack} 枚引いてターンが飛ばされました！`);
+    room.drawStack = 0;
+    step = 2;
+  }
+
+  advanceTurn(roomCode, step);
+}
+
+// 次のターンへ進め、出せるカードがない場合の強制ドロー＆自動出しを行う
 function advanceTurn(roomCode, step = 1) {
   const room = rooms[roomCode];
   if (!room || room.state !== 'playing') return;
 
+  if (room.turnTimer) clearInterval(room.turnTimer);
+
   const numPlayers = room.players.length;
   room.currentTurnIndex = (room.currentTurnIndex + (step * room.direction) + numPlayers * 10) % numPlayers;
-
   const nextPlayer = room.players[room.currentTurnIndex];
 
-  // 告発失敗ペナルティ（1回休み）のチェック
+  // 告発失敗ペナルティ（1回休み）
   if (nextPlayer.skipNextTurn) {
     nextPlayer.skipNextTurn = false;
     addLog(roomCode, `🚫 ${nextPlayer.name} はUNO告発失敗のペナルティで1回休みです！`);
@@ -161,19 +237,83 @@ function advanceTurn(roomCode, step = 1) {
     return;
   }
 
-  // 出せるカードがない場合に無限に引くルールのチェック
-  if (room.settings.drawUntilMatch && room.drawStack === 0) {
-    let hasPlayable = nextPlayer.hand.some(c => canPlayCard(c, room.discardPile[room.discardPile.length - 1], room.currentColor, 0, room.settings));
-    let drawnCount = 0;
-    while (!hasPlayable && room.deck.length > 0) {
-      const drawn = drawCardsFromDeck(room, 1);
-      if (drawn.length === 0) break;
-      nextPlayer.hand.push(drawn[0]);
-      drawnCount++;
-      hasPlayable = canPlayCard(drawn[0], room.discardPile[room.discardPile.length - 1], room.currentColor, 0, room.settings);
+  const topCard = room.discardPile[room.discardPile.length - 1];
+
+  // 1. ドロー2 / ドロー4 / ドロー10 累積中の判定
+  if (room.drawStack > 0) {
+    const canCounter = nextPlayer.hand.some(c => canPlayCard(c, topCard, room.currentColor, room.drawStack, room.settings));
+    if (!canCounter) {
+      // 出せるカードがない場合は強制ドローしてそのターン終了
+      const drawn = drawCardsFromDeck(room, room.drawStack);
+      nextPlayer.hand.push(...drawn);
+      io.to(nextPlayer.id).emit('notification', `ドロー${room.drawStack}！出せるカードがないため強制ドローしターン終了`);
+      addLog(roomCode, `💥 ${nextPlayer.name} は返せるカードがなく、強制的に ${room.drawStack} 枚引いてターン終了しました。`);
+      room.drawStack = 0;
+      broadcastGameState(roomCode);
+      setTimeout(() => advanceTurn(roomCode, 1), 900);
+      return;
     }
-    if (drawnCount > 0) {
-      addLog(roomCode, `🔄 ${nextPlayer.name} は出せるカードが出るまで山札から ${drawnCount} 枚引きました。`);
+  } else {
+    // 2. 通常ターン：手札に出せるカードがあるか判定
+    const hasPlayable = nextPlayer.hand.some(c => canPlayCard(c, topCard, room.currentColor, 0, room.settings));
+    if (!hasPlayable) {
+      // 出せるカードがない場合は強制的に山札からドロー
+      let drawnCards = [];
+      let playableDrawnCard = null;
+
+      if (room.settings.drawUntilMatch) {
+        // 出せるカードが出るまで引く
+        while (!playableDrawnCard && room.deck.length > 0) {
+          const drawn = drawCardsFromDeck(room, 1);
+          if (drawn.length === 0) break;
+          const card = drawn[0];
+          nextPlayer.hand.push(card);
+          drawnCards.push(card);
+          if (canPlayCard(card, topCard, room.currentColor, 0, room.settings)) {
+            playableDrawnCard = card;
+          }
+        }
+      } else {
+        // 1枚引く
+        const drawn = drawCardsFromDeck(room, 1);
+        if (drawn.length > 0) {
+          const card = drawn[0];
+          nextPlayer.hand.push(card);
+          drawnCards.push(card);
+          if (canPlayCard(card, topCard, room.currentColor, 0, room.settings)) {
+            playableDrawnCard = card;
+          }
+        }
+      }
+
+      if (drawnCards.length > 0) {
+        addLog(roomCode, `📥 ${nextPlayer.name} は出せるカードがないため山札から ${drawnCards.length} 枚引きました。`);
+        io.to(nextPlayer.id).emit('notification', `出せるカードがないため ${drawnCards.length} 枚強制ドロー！`);
+      }
+
+      broadcastGameState(roomCode);
+
+      if (playableDrawnCard) {
+        // 出せるカードを取得したらその場に出す
+        if (playableDrawnCard.color === 'black') {
+          // 黒カードを引いた場合は本人に色を選ばせてから自動出し
+          io.to(nextPlayer.id).emit('promptAutoWildColor', { cardId: playableDrawnCard.id });
+          startTurnTimer(roomCode);
+          return;
+        } else {
+          setTimeout(() => {
+            if (rooms[roomCode] && rooms[roomCode].state === 'playing') {
+              executePlayCards(roomCode, nextPlayer, [playableDrawnCard], null);
+            }
+          }, 800);
+          return;
+        }
+      } else {
+        // 1枚引きモードで出せるカードが引けなかった場合はターン終了
+        addLog(roomCode, `⏭️ ${nextPlayer.name} は出せるカードを引けなかったためターン終了です。`);
+        setTimeout(() => advanceTurn(roomCode, 1), 800);
+        return;
+      }
     }
   }
 
@@ -182,14 +322,12 @@ function advanceTurn(roomCode, step = 1) {
   startTurnTimer(roomCode);
 }
 
-// ログ送信
 function addLog(roomCode, message) {
   const room = rooms[roomCode];
   if (!room) return;
   io.to(roomCode).emit('gameLog', message);
 }
 
-// ゲーム状態の全体配信（手札は本人のみ詳細を送信し、他人は枚数のみ）
 function broadcastGameState(roomCode) {
   const room = rooms[roomCode];
   if (!room) return;
@@ -219,7 +357,6 @@ function broadcastGameState(roomCode) {
   });
 }
 
-// 待機室状態の配信
 function broadcastLobbyState(roomCode) {
   const room = rooms[roomCode];
   if (!room) return;
@@ -237,7 +374,6 @@ function broadcastLobbyState(roomCode) {
 }
 
 io.on('connection', (socket) => {
-  // 部屋の作成
   socket.on('createRoom', ({ playerName }) => {
     const code = generateRoomCode();
     const player = {
@@ -254,14 +390,14 @@ io.on('connection', (socket) => {
 
     rooms[code] = {
       code,
-      state: 'lobby', // lobby, countdown, playing
+      state: 'lobby',
       players: [player],
       settings: {
         initialCards: 7,
-        drawUntilMatch: false,
+        drawUntilMatch: true,
         draw10: false,
-        noMultiPlay: false, // 重ね出し禁止（trueなら1枚ずつ）
-        stackDraw: true,    // ドロー2・4の重複
+        noMultiPlay: false,
+        stackDraw: true,
         turnTime: 30
       },
       deck: [],
@@ -280,7 +416,6 @@ io.on('connection', (socket) => {
     broadcastLobbyState(code);
   });
 
-  // 部屋の参加
   socket.on('joinRoom', ({ playerName, roomCode }) => {
     const room = rooms[roomCode];
     if (!room) {
@@ -315,7 +450,6 @@ io.on('connection', (socket) => {
     broadcastLobbyState(roomCode);
   });
 
-  // ルール設定の変更（ホストのみ）
   socket.on('updateSettings', (newSettings) => {
     const room = rooms[socket.roomCode];
     if (!room || room.state !== 'lobby') return;
@@ -326,7 +460,6 @@ io.on('connection', (socket) => {
     broadcastLobbyState(socket.roomCode);
   });
 
-  // 準備OKの切り替え
   socket.on('toggleReady', () => {
     const room = rooms[socket.roomCode];
     if (!room || room.state !== 'lobby') return;
@@ -337,7 +470,6 @@ io.on('connection', (socket) => {
     broadcastLobbyState(socket.roomCode);
   });
 
-  // チャット送信（待機室・ゲーム中共通）
   socket.on('sendChat', ({ message, area }) => {
     const room = rooms[socket.roomCode];
     if (!room || !message.trim()) return;
@@ -352,7 +484,6 @@ io.on('connection', (socket) => {
     });
   });
 
-  // ゲーム開始（ホストのみ・強制スタート対応）
   socket.on('startGame', ({ force }) => {
     const room = rooms[socket.roomCode];
     if (!room || room.state !== 'lobby') return;
@@ -384,7 +515,6 @@ io.on('connection', (socket) => {
     }, 1000);
   });
 
-  // ゲーム初期化・カード配布
   function initializeGame(roomCode) {
     const room = rooms[roomCode];
     if (!room) return;
@@ -394,9 +524,8 @@ io.on('connection', (socket) => {
     room.discardPile = [];
     room.direction = 1;
     room.drawStack = 0;
-    room.currentTurnIndex = 0;
+    room.currentTurnIndex = -1; // advanceTurn(1)で0番目から開始
 
-    // 各プレイヤーに初期枚数を配布
     room.players.forEach(p => {
       p.hand = drawCardsFromDeck(room, room.settings.initialCards);
       p.unoDeclaredValidUntil = 0;
@@ -405,7 +534,6 @@ io.on('connection', (socket) => {
       p.skipNextTurn = false;
     });
 
-    // 最初の場札（数字カードになるまで引き直す）
     let firstCard = drawCardsFromDeck(room, 1)[0];
     while (firstCard.color === 'black' || firstCard.type === 'action') {
       room.deck.unshift(firstCard);
@@ -417,12 +545,9 @@ io.on('connection', (socket) => {
 
     io.to(roomCode).emit('gameStarted');
     addLog(roomCode, '🎮 ゲームが開始されました！');
-    broadcastGameState(roomCode);
-    io.to(roomCode).emit('turnBanner', `${room.players[0].name}さんの番です`);
-    startTurnTimer(roomCode);
+    advanceTurn(roomCode, 1);
   }
 
-  // UNO宣言ボタン（自分のターンのみ、押してから10秒間有効）
   socket.on('declareUno', () => {
     const room = rooms[socket.roomCode];
     if (!room || room.state !== 'playing') return;
@@ -435,7 +560,6 @@ io.on('connection', (socket) => {
     broadcastGameState(room.code);
   });
 
-  // UNO告発ボタン
   socket.on('accuseUno', ({ targetId }) => {
     const room = rooms[socket.roomCode];
     if (!room || room.state !== 'playing') return;
@@ -444,13 +568,11 @@ io.on('connection', (socket) => {
     if (!accuser || !target || accuser.id === target.id) return;
 
     const now = Date.now();
-    // すでに誰かが告発済みなら最初の一人のみ有効
     if (target.accused) {
       socket.emit('notification', 'すでに他のプレイヤーが告発を行いました。');
       return;
     }
 
-    // 対象が残り1枚で、かつ10秒以内の告発可能時間内で、UNO宣言をしていない場合 -> 告発成功
     if (target.hand.length === 1 && now <= target.vulnerableUntil) {
       target.accused = true;
       const penaltyCards = drawCardsFromDeck(room, 3);
@@ -460,7 +582,6 @@ io.on('connection', (socket) => {
       addLog(room.code, `🚨 ${msg}`);
       broadcastGameState(room.code);
     } else {
-      // 告発失敗 -> 告発者が次のターン1回休み
       accuser.skipNextTurn = true;
       const msg = `${accuser.name}さんが告発に失敗しました！（次のターン1回休み）`;
       io.to(room.code).emit('accusationResult', { success: false, message: msg });
@@ -468,7 +589,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // カードを出す処理
   socket.on('playCards', ({ cardIds, chosenColor }) => {
     const room = rooms[socket.roomCode];
     if (!room || room.state !== 'playing') return;
@@ -477,7 +597,6 @@ io.on('connection', (socket) => {
     if (currentPlayer.id !== socket.id) return;
     if (!cardIds || cardIds.length === 0) return;
 
-    // 選択されたカードを抽出
     const selectedCards = [];
     for (const cid of cardIds) {
       const card = currentPlayer.hand.find(c => c.id === cid);
@@ -485,7 +604,6 @@ io.on('connection', (socket) => {
       selectedCards.push(card);
     }
 
-    // 重ね出しチェック
     if (selectedCards.length > 1) {
       if (room.settings.noMultiPlay) {
         socket.emit('errorMsg', '現在のルールではカードの重ね出しは禁止されています。');
@@ -501,144 +619,14 @@ io.on('connection', (socket) => {
     const topCard = room.discardPile[room.discardPile.length - 1];
     const firstCard = selectedCards[0];
 
-    // 1枚目が出せるカードか判定
     if (!canPlayCard(firstCard, topCard, room.currentColor, room.drawStack, room.settings)) {
       socket.emit('errorMsg', 'そのカードは場に出せません。');
       return;
     }
 
-    // 手札から削除して場に出す
-    currentPlayer.hand = currentPlayer.hand.filter(c => !cardIds.includes(c.id));
-    room.discardPile.push(...selectedCards);
-
-    const lastPlayed = selectedCards[selectedCards.length - 1];
-    const count = selectedCards.length;
-
-    // 色の更新
-    if (lastPlayed.color === 'black') {
-      room.currentColor = chosenColor || 'red';
-    } else {
-      room.currentColor = lastPlayed.color;
-    }
-
-    const colorNames = { red: '赤', blue: '青', yellow: '黄', green: '緑', black: '黒' };
-    addLog(room.code, `🃏 ${currentPlayer.name} が ${colorNames[lastPlayed.color]}の「${lastPlayed.value}」を ${count}枚 出しました。`);
-
-    // 勝利判定（手札0枚）
-    if (currentPlayer.hand.length === 0) {
-      clearInterval(room.turnTimer);
-      room.state = 'lobby';
-      // 全員の準備状態をリセット
-      room.players.forEach(p => { p.isReady = false; p.hand = []; });
-      io.to(room.code).emit('gameOver', { winner: currentPlayer.name });
-      addLog(room.code, `🏆 ${currentPlayer.name} さんの勝利です！`);
-      return;
-    }
-
-    // 残り1枚になった時のUNO宣言チェック
-    if (currentPlayer.hand.length === 1) {
-      if (currentPlayer.unoDeclaredValidUntil >= Date.now()) {
-        // 宣言済み（10秒以内）
-        currentPlayer.vulnerableUntil = 0;
-        currentPlayer.accused = false;
-      } else {
-        // 宣言忘れ -> 10秒間告発可能状態にする
-        currentPlayer.vulnerableUntil = Date.now() + 10000;
-        currentPlayer.accused = false;
-      }
-    } else {
-      currentPlayer.vulnerableUntil = 0;
-      currentPlayer.accused = false;
-    }
-
-    // 特殊カードの効果処理
-    let step = 1;
-    const val = lastPlayed.value;
-
-    if (val === 'reverse') {
-      if (room.players.length === 2) {
-        step = 2; // 2人プレイ時のリバースはスキップと同じ
-      } else {
-        if (count % 2 === 1) room.direction *= -1;
-      }
-      addLog(room.code, `🔁 順番が逆回りになりました！`);
-    } else if (val === 'skip') {
-      step = 1 + count;
-      const skippedIndex = (room.currentTurnIndex + room.direction + room.players.length * 10) % room.players.length;
-      const skippedPlayer = room.players[skippedIndex];
-      io.to(skippedPlayer.id).emit('notification', 'スキップされました！');
-      addLog(room.code, `⏭️ ${skippedPlayer.name} がスキップされました！`);
-    } else if (val === 'draw2') {
-      room.drawStack += 2 * count;
-      io.to(room.code).emit('notification', `ドロー${room.drawStack}！`);
-    } else if (val === 'draw4') {
-      room.drawStack += 4 * count;
-      io.to(room.code).emit('notification', `ドロー${room.drawStack}！`);
-    } else if (val === 'draw10') {
-      room.drawStack += 10 * count;
-      io.to(room.code).emit('notification', `ドロー${room.drawStack}！`);
-    }
-
-    // ドロー重複がオフの場合、即座に次のプレイヤーに引かせてスキップ
-    if (room.drawStack > 0 && !room.settings.stackDraw) {
-      const targetIndex = (room.currentTurnIndex + room.direction + room.players.length * 10) % room.players.length;
-      const targetPlayer = room.players[targetIndex];
-      const drawn = drawCardsFromDeck(room, room.drawStack);
-      targetPlayer.hand.push(...drawn);
-      io.to(targetPlayer.id).emit('notification', `ドロー${room.drawStack}！${room.drawStack}枚引きました`);
-      addLog(room.code, `💥 ${targetPlayer.name} は ${room.drawStack} 枚引いてターンが飛ばされました！`);
-      room.drawStack = 0;
-      step = 2;
-    }
-
-    advanceTurn(room.code, step);
+    executePlayCards(room.code, currentPlayer, selectedCards, chosenColor);
   });
 
-  // 山札からカードを引く（プレイヤーの操作）
-  socket.on('drawCardAction', () => {
-    const room = rooms[socket.roomCode];
-    if (!room || room.state !== 'playing') return;
-
-    const currentPlayer = room.players[room.currentTurnIndex];
-    if (currentPlayer.id !== socket.id) return;
-
-    // ドロー累積中の場合は累積分を引いてターン終了
-    if (room.drawStack > 0) {
-      const drawn = drawCardsFromDeck(room, room.drawStack);
-      currentPlayer.hand.push(...drawn);
-      io.to(currentPlayer.id).emit('notification', `ドロー${room.drawStack}！${room.drawStack}枚引きました`);
-      addLog(room.code, `💥 ${currentPlayer.name} は累積された ${room.drawStack} 枚を引きました。`);
-      room.drawStack = 0;
-      advanceTurn(room.code, 1);
-      return;
-    }
-
-    // 出せるカードがあるか確認
-    const topCard = room.discardPile[room.discardPile.length - 1];
-    const hasPlayable = currentPlayer.hand.some(c => canPlayCard(c, topCard, room.currentColor, 0, room.settings));
-    if (hasPlayable) {
-      socket.emit('errorMsg', '出せるカードが手札にあります。');
-      return;
-    }
-
-    // 出せるカードが出るまで無限に引く
-    let drawnCount = 0;
-    let foundPlayable = false;
-    while (!foundPlayable && room.deck.length > 0) {
-      const drawn = drawCardsFromDeck(room, 1);
-      if (drawn.length === 0) break;
-      currentPlayer.hand.push(drawn[0]);
-      drawnCount++;
-      if (canPlayCard(drawn[0], topCard, room.currentColor, 0, room.settings)) {
-        foundPlayable = true;
-      }
-    }
-
-    addLog(room.code, `📥 ${currentPlayer.name} は出せるカードが出るまで山札から ${drawnCount} 枚引きました。`);
-    broadcastGameState(room.code);
-  });
-
-  // 切断処理
   socket.on('disconnect', () => {
     const code = socket.roomCode;
     const room = rooms[code];
@@ -656,7 +644,6 @@ io.on('connection', (socket) => {
         return;
       }
 
-      // ホストが抜けた場合は次の人に👑を移譲
       if (leftPlayer.isHost) {
         room.players[0].isHost = true;
       }

@@ -10,20 +10,18 @@ socket.on('connect', () => {
   myId = socket.id;
 });
 
-// 画面切り替え関数
 function showScreen(screenId) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById(screenId).classList.add('active');
 }
 
-// 画面上部バナー通知
 function showBanner(text, type = 'info') {
   const container = document.getElementById('banner-container');
   const banner = document.createElement('div');
   banner.className = `banner banner-${type}`;
   banner.textContent = text;
   container.appendChild(banner);
-  setTimeout(() => banner.remove(), 3500);
+  setTimeout(() => banner.remove(), 3200);
 }
 
 // --- ホーム画面操作 ---
@@ -52,7 +50,6 @@ socket.on('errorMsg', (msg) => {
   showBanner(msg, 'danger');
 });
 
-// 部屋入室時（チャットを毎回リセット）
 socket.on('roomJoined', ({ roomCode, isHost: hostFlag }) => {
   isHost = hostFlag;
   document.getElementById('home-error').textContent = '';
@@ -62,11 +59,10 @@ socket.on('roomJoined', ({ roomCode, isHost: hostFlag }) => {
   document.getElementById('game-chat-messages').innerHTML = '';
   document.getElementById('game-log-list').innerHTML = '';
 
-  // ホストなら設定UIとスタートボタンを有効化
   const inputs = document.querySelectorAll('#lobby-screen input[type="range"], #lobby-screen input[type="checkbox"]');
   inputs.forEach(el => el.disabled = !isHost);
   document.getElementById('host-start-controls').classList.toggle('hidden', !isHost);
-  document.getElementById('settings-note').textContent = isHost ? '(あなたが変更可能です)' : '(部屋作成者が変更可能)';
+  document.getElementById('settings-note').textContent = isHost ? '(あなたが変更可能)' : '(作成者が変更可能)';
 
   showScreen('lobby-screen');
 });
@@ -95,7 +91,6 @@ socket.on('lobbyUpdate', ({ players, settings }) => {
     }
   });
 
-  // 設定値の反映
   document.getElementById('set-initial-cards').value = settings.initialCards;
   document.getElementById('val-initial-cards').textContent = settings.initialCards;
   document.getElementById('set-turn-time').value = settings.turnTime;
@@ -189,6 +184,12 @@ socket.on('gameStarted', () => {
   showScreen('game-screen');
 });
 
+// 強制ドローで黒カードを引いた時の自動出し用色選択プロンプト
+socket.on('promptAutoWildColor', ({ cardId }) => {
+  pendingPlayCardIds = [cardId];
+  document.getElementById('color-picker-modal').classList.remove('hidden');
+});
+
 // --- ゲーム状態描画 ---
 socket.on('timerUpdate', (timeLeft) => {
   document.getElementById('turn-timer').textContent = timeLeft;
@@ -213,6 +214,10 @@ socket.on('accusationResult', ({ success, message }) => {
 socket.on('gameStateUpdate', (state) => {
   currentGameState = state;
   renderGame(state);
+});
+
+window.addEventListener('resize', () => {
+  if (currentGameState) adjustHandOverlap();
 });
 
 function getCardLabel(value) {
@@ -253,7 +258,6 @@ function toggleSelectCard(card) {
   if (selectedCardIds.includes(card.id)) {
     selectedCardIds = selectedCardIds.filter(id => id !== card.id);
   } else {
-    // 重ね出し禁止の場合、または違う数字を選んだ場合は単一選択に切り替え
     if (currentGameState.settings.noMultiPlay) {
       selectedCardIds = [card.id];
     } else if (selectedCardIds.length > 0) {
@@ -268,6 +272,32 @@ function toggleSelectCard(card) {
     }
   }
   renderGame(currentGameState);
+}
+
+// 枚数が多い場合に画面幅に合わせてカード同士を自動で重ねる関数
+function adjustHandOverlap() {
+  const container = document.getElementById('my-hand-container');
+  const handEl = document.getElementById('my-hand');
+  const cards = handEl.querySelectorAll('.uno-card');
+  const count = cards.length;
+  if (count === 0) return;
+
+  const containerWidth = container.clientWidth - 20;
+  const cardWidth = cards[0].offsetWidth || 68;
+  const totalWidthNeeded = count * cardWidth + (count - 1) * 6;
+
+  if (totalWidthNeeded <= containerWidth) {
+    cards.forEach((c, idx) => {
+      c.style.marginLeft = idx === 0 ? '0px' : '6px';
+    });
+  } else {
+    // 画面端に行ったら一部重ねて1画面内に収める
+    const step = (containerWidth - cardWidth) / (count - 1);
+    const overlapMargin = Math.min(-4, step - cardWidth);
+    cards.forEach((c, idx) => {
+      c.style.marginLeft = idx === 0 ? '0px' : `${overlapMargin}px`;
+    });
+  }
 }
 
 function renderGame(state) {
@@ -302,7 +332,7 @@ function renderGame(state) {
   const stackBadge = document.getElementById('draw-stack-badge');
   if (state.drawStack > 0) {
     stackBadge.classList.remove('hidden');
-    stackBadge.textContent = `累積ドロー: +${state.drawStack}`;
+    stackBadge.textContent = `累積 +${state.drawStack}`;
   } else {
     stackBadge.classList.add('hidden');
   }
@@ -310,23 +340,23 @@ function renderGame(state) {
   // 自分の手札表示
   const handContainer = document.getElementById('my-hand');
   handContainer.innerHTML = '';
-  // 存在しない選択IDをクリーンアップ
   selectedCardIds = selectedCardIds.filter(id => state.myHand.some(c => c.id === id));
 
   state.myHand.forEach(card => {
     handContainer.appendChild(createCardElement(card, true));
   });
 
+  adjustHandOverlap();
+
   // ボタンの有効/無効制御
   const btnPlay = document.getElementById('btn-play-card');
   btnPlay.disabled = !state.isMyTurn || selectedCardIds.length === 0;
 
-  // UNO宣言は自分のターンのみ押せる
   const btnUno = document.getElementById('btn-uno-declare');
   btnUno.disabled = !state.isMyTurn;
 }
 
-// 並び替えボタン（黒カード一番左、その後赤・青・黄・緑の数字順）
+// 並び替えボタン
 document.getElementById('btn-sort-hand').addEventListener('click', () => {
   if (!currentGameState) return;
   const colorOrder = { black: 0, red: 1, blue: 2, yellow: 3, green: 4 };
@@ -342,12 +372,6 @@ document.getElementById('btn-sort-hand').addEventListener('click', () => {
     return (valueOrder[a.value] || 99) - (valueOrder[b.value] || 99);
   });
   renderGame(currentGameState);
-});
-
-// 山札クリックでカードを引く
-document.getElementById('deck-pile').addEventListener('click', () => {
-  if (!currentGameState || !currentGameState.isMyTurn) return;
-  socket.emit('drawCardAction');
 });
 
 // カードを出すボタン
